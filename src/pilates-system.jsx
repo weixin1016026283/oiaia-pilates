@@ -508,6 +508,9 @@ export default function App() {
   const [emailClientName, setEmailClientName] = useState("");
   const [emailSending, setEmailSending] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
+  const [lang, setLang] = useState("zh");
+  const t = (zh, en) => lang === "en" ? en : zh;
+  const tb = (zh, en) => lang === "en" ? en : `${zh} ${en}`;
 
   const toggle = useCallback((id) => setChecks((p) => ({ ...p, [id]: !p[id] })), []);
 
@@ -548,13 +551,91 @@ export default function App() {
     return lines.join("\n");
   }, [program, clientName, emailClientName]);
 
+
+  // ═══ PDF GENERATION ═══
+  const buildPDFHTML = useCallback(() => {
+    if (!program) return "";
+    const name = emailClientName || clientName || "";
+    const isEN = lang === "en";
+    const issues = program.issueDetails.map((d, i) => {
+      const prio = d.priority >= 3 ? "●●●" : d.priority >= 2 ? "●●" : "●";
+      return `<tr>
+        <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600">${i+1}. ${isEN ? d.issueEn : d.issue}${d.sideLabel || ""} <span style="color:#E8A090">${prio}</span></td>
+      </tr>
+      <tr><td style="padding:4px 12px 4px 24px;color:#666;font-size:13px">${isEN ? d.descEn : d.desc}${!isEN ? ` <span style='color:#999;font-size:11px'>${d.descEn}</span>` : ""}</td></tr>
+      <tr><td style="padding:4px 12px 4px 24px;font-size:12px"><span style="color:#C8A088">↑ ${isEN ? "Strengthen" : "加强"}: </span>${isEN ? d.strengthenEn : d.strengthen}${!isEN ? ` <span style='color:#999;font-size:11px'>${d.strengthenEn}</span>` : ""}</td></tr>
+      <tr><td style="padding:4px 12px 8px 24px;font-size:12px"><span style="color:#A0C4D8">↓ ${isEN ? "Stretch" : "拉伸"}: </span>${isEN ? d.stretchEn : d.stretch}${!isEN ? ` <span style='color:#999;font-size:11px'>${d.stretchEn}</span>` : ""}</td></tr>`;
+    }).join("");
+
+    const sessions = program.sessions.map(s => {
+      const exRows = s.exercises.map((ex, j) => `<tr>
+        <td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;width:24px;color:#999;text-align:center;font-size:12px">${j+1}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;font-size:13px"><b>${isEN ? ex.nameEn : ex.name}</b>${!isEN ? ` <span style='color:#999;font-size:11px'>${ex.nameEn}</span>` : ""}${ex.reasons.length ? `<br><span style='color:#999;font-size:11px'>${isEN ? "For" : "针对"}: ${ex.reasons.map(r => isEN ? r.en : r.zh).join(", ")}</span>` : ""}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;white-space:nowrap">${ex.sets}×${ex.reps}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:12px;color:#666;white-space:nowrap">${ex.springs}</td>
+      </tr>`).join("");
+      return `<div style="margin-bottom:20px;page-break-inside:avoid">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+          <div style="width:36px;height:36px;border-radius:12px;background:${s.phaseIdx===0?"#E8A090":s.phaseIdx===1?"#A0C4D8":"#B8A8D0"};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px">${s.num}</div>
+          <div><div style="font-weight:600;font-size:14px">${s.focus}</div><div style="font-size:11px;color:#999">${s.phase} · ${s.exercises.length} ${isEN ? "exercises" : "个动作"} · 45min</div></div>
+        </div>
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="background:#fafafa">
+            <th style="padding:6px 8px;font-size:11px;color:#999;text-align:center;width:24px">#</th>
+            <th style="padding:6px 8px;font-size:11px;color:#999;text-align:left">${isEN ? "Exercise" : "动作"}</th>
+            <th style="padding:6px 8px;font-size:11px;color:#999;text-align:center">${isEN ? "Sets×Reps" : "组×次"}</th>
+            <th style="padding:6px 8px;font-size:11px;color:#999;text-align:center">${isEN ? "Springs" : "弹簧"}</th>
+          </tr></thead>
+          <tbody>${exRows}</tbody>
+        </table>
+      </div>`;
+    }).join("");
+
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>OiaOia Pilates${name ? " — " + name : ""}</title>
+      <style>@page{margin:20mm 15mm}body{font-family:-apple-system,system-ui,'Noto Sans SC',sans-serif;color:#333;line-height:1.5;max-width:800px;margin:0 auto;padding:20px}
+      @media print{button{display:none!important}}</style></head><body>
+      <div style="text-align:center;margin-bottom:30px;padding-bottom:20px;border-bottom:2px solid #E8A090">
+        <div style="font-size:24px;font-weight:700;color:#E8A090;margin-bottom:4px">OiaOia Pilates</div>
+        <div style="font-size:18px;font-weight:600;margin-bottom:4px">${isEN ? "Postural Analysis & Program Report" : "体态分析与课程设计报告"}</div>
+        <div style="font-size:12px;color:#999">Based on contemporary Reformer methodology and principles</div>
+        ${name ? `<div style="font-size:14px;margin-top:10px;color:#666">${isEN ? "Client" : "客户"}: <b>${name}</b></div>` : ""}
+        <div style="font-size:13px;color:#666;margin-top:4px">${isEN ? `${program.totalSessions} Sessions · 45min each` : `共 ${program.totalSessions} 次课程 · 每次45分钟`}</div>
+      </div>
+      <div style="margin-bottom:30px">
+        <h2 style="font-size:18px;color:#333;border-bottom:1px solid #ddd;padding-bottom:8px">${isEN ? "Postural Analysis Summary" : "体态分析摘要"}</h2>
+        <table style="width:100%">${issues}</table>
+      </div>
+      <div>
+        <h2 style="font-size:18px;color:#333;border-bottom:1px solid #ddd;padding-bottom:8px">${isEN ? "Program Design" : "课程设计"}</h2>
+        <div style="font-size:12px;color:#999;margin-bottom:16px">${isEN ? "Recommended 2–3× per week" : "建议每周2–3次"}</div>
+        ${sessions}
+      </div>
+      <div style="text-align:center;margin-top:40px;padding-top:20px;border-top:1px solid #ddd;color:#999;font-size:12px">— OiaOia Pilates —</div>
+      <button onclick="window.print()" style="position:fixed;bottom:20px;right:20px;padding:12px 24px;border-radius:100px;border:none;cursor:pointer;font-size:14px;font-weight:600;background:#E8A090;color:#fff;box-shadow:0 4px 20px rgba(232,160,144,0.4)">${isEN ? "⬇ Save as PDF" : "⬇ 保存为PDF"}</button>
+      </body></html>`;
+  }, [program, clientName, emailClientName, lang]);
+
+  const handleDownloadPDF = useCallback(() => {
+    const html = buildPDFHTML();
+    if (!html) return;
+    const w = window.open("", "_blank");
+    w.document.write(html);
+    w.document.close();
+  }, [buildPDFHTML]);
+
   const handleSendEmail = useCallback(() => {
     if (!emailTo || !emailTo.includes("@")) return;
     setEmailSending(true);
     const name = emailClientName || clientName || "";
+    // Open PDF in new tab for user to save/print
+    const html = buildPDFHTML();
+    const w = window.open("", "_blank");
+    w.document.write(html);
+    w.document.close();
+    // Also open mailto with brief text
     const subject = encodeURIComponent(`OiaOia Pilates — Program${name ? ` for ${name}` : ""}`);
-    const body = encodeURIComponent(buildEmailBody());
-    window.open(`mailto:${emailTo}?subject=${subject}&body=${body}`, "_blank");
+    const brief = encodeURIComponent(`Hi,\n\nPlease find attached the OiaOia Pilates postural analysis and program report${name ? ` for ${name}` : ""}.\n\n— OiaOia Pilates`);
+    setTimeout(() => window.open(`mailto:${emailTo}?subject=${subject}&body=${brief}`, "_self"), 500);
     // Also sync emailClientName back to header if it was newly entered
     if (emailClientName && !clientName) setClientName(emailClientName);
     setTimeout(() => {
@@ -562,11 +643,11 @@ export default function App() {
       setEmailSent(true);
       setTimeout(() => { setEmailSent(false); setShowEmail(false); }, 1800);
     }, 800);
-  }, [emailTo, clientName, emailClientName, buildEmailBody]);
+  }, [emailTo, clientName, emailClientName, buildPDFHTML]);
   const toggleSide = useCallback((id, s) => setSides((p) => ({ ...p, [`${id}_${s}`]: !p[`${id}_${s}`] })), []);
   const getIssues = useCallback(() => Object.entries(checks).filter(([id, v]) => v && POSTURAL_CORRECTIONS[id]).map(([id]) => ({ id, sides: [...(sides[`${id}_R`] ? ["R"] : []), ...(sides[`${id}_L`] ? ["L"] : [])] })), [checks, sides]);
   const issueCount = useMemo(() => Object.entries(checks).filter(([id, v]) => v && POSTURAL_CORRECTIONS[id]).length, [checks]);
-  const handleGen = useCallback(() => { const i = getIssues(); if (!i.length) { alert("请至少选择一个体态问题 Please select at least one postural issue"); return; } setProgram(generateProgram(i, sides, clientLevel)); setStep(3); }, [getIssues, sides, clientLevel]);
+  const handleGen = useCallback(() => { const i = getIssues(); if (!i.length) { alert(t("请至少选择一个体态问题", "Please select at least one postural issue")); return; } setProgram(generateProgram(i, sides, clientLevel)); setStep(3); }, [getIssues, sides, clientLevel]);
 
   const tag = (bg, c, text) => <span style={{ display: "inline-block", fontSize: 10, padding: "4px 12px", borderRadius: 100, background: bg, color: c, fontWeight: 500, lineHeight: 1.3 }}>{text}</span>;
 
@@ -603,14 +684,24 @@ export default function App() {
               </div>
               <div>
                 <div style={{ fontFamily: "'Quicksand'", fontSize: 22, color: P.text, lineHeight: 1.1 }}>Pilates Reformer</div>
-                <div style={{ fontSize: 11, color: P.textSoft, marginTop: 2, letterSpacing: 0.3 }}>OiaOia Pilates · Postural Assessment & Program Design</div>
+                {lang === "zh"
+                  ? <div style={{ fontSize: 11, color: P.textSoft, marginTop: 2, letterSpacing: 0.3 }}>OiaOia Pilates · 体态评估与课程设计</div>
+                  : <div style={{ fontSize: 11, color: P.textSoft, marginTop: 2, letterSpacing: 0.3 }}>OiaOia Pilates · Postural Assessment & Program Design</div>
+                }
               </div>
             </div>
-            <div style={{
-              background: P.card, backdropFilter: "blur(20px)", borderRadius: 100,
-              padding: "8px 20px", boxShadow: P.shadowSm,
-            }}>
-              <input value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="客户姓名 Client Name" style={{ background: "transparent", border: "none", color: P.text, fontSize: 13, width: 160, outline: "none", textAlign: "center" }} />
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <button onClick={() => setLang(lang === "zh" ? "en" : "zh")} style={{
+                padding: "8px 14px", borderRadius: 100, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600,
+                background: P.card, backdropFilter: "blur(20px)", boxShadow: P.shadowSm,
+                color: P.textMid, transition: "all 0.3s",
+              }}>{lang === "zh" ? "EN" : "中文"}</button>
+              <div style={{
+                background: P.card, backdropFilter: "blur(20px)", borderRadius: 100,
+                padding: "8px 20px", boxShadow: P.shadowSm,
+              }}>
+                <input value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder={t("客户姓名", "Client Name")} style={{ background: "transparent", border: "none", color: P.text, fontSize: 13, width: 160, outline: "none", textAlign: "center" }} />
+              </div>
             </div>
           </div>
 
@@ -630,9 +721,9 @@ export default function App() {
                   transform: step === s.n ? "scale(1)" : "scale(0.98)",
                 }}>
                   <div style={{ fontSize: 14, fontWeight: step === s.n ? 600 : 400, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                    <span style={{ fontSize: 12 }}>{s.icon}</span> {s.zh}
+                    <span style={{ fontSize: 12 }}>{s.icon}</span> {lang === "en" ? s.en : s.zh}
                   </div>
-                  <div style={{ fontSize: 9, marginTop: 1, opacity: 0.75 }}>{s.en}</div>
+                  {lang === "zh" && <div style={{ fontSize: 9, marginTop: 1, opacity: 0.75 }}>{s.en}</div>}
                 </button>
               ))}
             </div>
@@ -660,7 +751,7 @@ export default function App() {
                     backdropFilter: a ? "none" : "blur(10px)",
                     transform: a ? "translateY(-2px)" : "translateY(0)",
                   }}>
-                    {d.title} <span style={{ fontSize: 10, opacity: 0.7, marginLeft: 4 }}>{d.titleEn}</span>
+                    {lang === "en" ? d.titleEn : d.title} {lang === "zh" && <span style={{ fontSize: 10, opacity: 0.7, marginLeft: 4 }}>{d.titleEn}</span>}
                   </button>
                 );
               })}
@@ -671,8 +762,8 @@ export default function App() {
               <div key={sec.key} style={{ marginBottom: 20 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, padding: "0 8px" }}>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                    <span style={{ fontFamily: "'Noto Serif SC', serif", fontSize: 19, color: P.text, fontWeight: 700 }}>{sec.name}</span>
-                    <span style={{ fontSize: 11, color: P.textFaint, fontWeight: 400 }}>{sec.nameEn}</span>
+                    <span style={{ fontFamily: lang === "en" ? "'Quicksand'" : "'Noto Serif SC', serif", fontSize: 19, color: P.text, fontWeight: 700 }}>{lang === "en" ? sec.nameEn : sec.name}</span>
+                    {lang === "zh" && <span style={{ fontSize: 11, color: P.textFaint, fontWeight: 400 }}>{sec.nameEn}</span>}
                   </div>
                   {sec.options.some((o) => o.hasRL) && (
                     <div style={{ display: "flex", gap: 6, fontSize: 10, fontWeight: 600, color: P.textFaint, letterSpacing: 1.5 }}>
@@ -711,15 +802,15 @@ export default function App() {
                               transform: on ? "scale(1)" : "scale(0.95)",
                             }}>{on && "✓"}</span>
                             <div>
-                              <span style={{ fontSize: 13, color: on ? P.text : P.textMid, fontWeight: on ? 500 : 400 }}>{opt.label}</span>
-                              <span style={{ fontSize: 10, color: P.textFaint, marginLeft: 6 }}>{opt.labelEn}</span>
+                              <span style={{ fontSize: 13, color: on ? P.text : P.textMid, fontWeight: on ? 500 : 400 }}>{lang === "en" ? opt.labelEn : opt.label}</span>
+                              {lang === "zh" && <span style={{ fontSize: 10, color: P.textFaint, marginLeft: 6 }}>{opt.labelEn}</span>}
                             </div>
                             {corr && on && (
                               <span style={{
                                 fontSize: 9, padding: "3px 10px", borderRadius: 100, fontWeight: 600, whiteSpace: "nowrap",
                                 background: `linear-gradient(140deg, ${P.peachSoft}, ${P.blushSoft})`,
                                 color: P.peach,
-                              }}>矫正 Corr.</span>
+                              }}>{t("矫正", "Corr.")}</span>
                             )}
                           </button>
 
@@ -767,7 +858,7 @@ export default function App() {
               display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginTop: 16,
             }}>
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                {[{ l: 1, t: "初级 Essential" }, { l: 2, t: "中级 Intermediate" }, { l: 3, t: "高级 Advanced" }].map((x) => (
+                {[{ l: 1, t: t("初级", "Essential") }, { l: 2, t: t("中级", "Intermediate") }, { l: 3, t: t("高级", "Advanced") }].map((x) => (
                   <button key={x.l} onClick={() => setClientLevel(x.l)} style={{
                     padding: "8px 18px", borderRadius: 100, fontSize: 12, cursor: "pointer", fontWeight: 500, border: "none",
                     background: clientLevel === x.l ? P.text : "rgba(0,0,0,0.04)",
@@ -778,7 +869,7 @@ export default function App() {
                 ))}
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                {issueCount > 0 && <span style={{ fontSize: 13, color: P.textMid }}><span style={{ color: P.peach, fontWeight: 700, fontSize: 18 }}>{issueCount}</span> issues</span>}
+                {issueCount > 0 && <span style={{ fontSize: 13, color: P.textMid }}><span style={{ color: P.peach, fontWeight: 700, fontSize: 18 }}>{issueCount}</span> {t("个问题", "issues")}</span>}
                 <button onClick={handleGen} style={{
                   padding: "12px 34px", borderRadius: 100, border: "none", cursor: "pointer", fontSize: 14, fontWeight: 600,
                   background: issueCount > 0 ? `linear-gradient(140deg, ${P.peach}, ${P.blush}, ${P.lav})` : "rgba(0,0,0,0.06)",
@@ -786,7 +877,7 @@ export default function App() {
                   boxShadow: issueCount > 0 ? `0 6px 24px ${P.peachGlow}` : "none",
                   transition: "all 0.4s cubic-bezier(0.16,1,0.3,1)",
                   transform: issueCount > 0 ? "translateY(-1px)" : "none",
-                }}>生成课程 Generate →</button>
+                }}>{t("生成课程 →", "Generate →")}</button>
               </div>
             </div>
           </div>
@@ -796,7 +887,7 @@ export default function App() {
         {step === 2 && (() => {
           let list = REFORMER_EXERCISES;
           if (filterCat !== "all") list = list.filter((e) => e.cat === filterCat);
-          if (search) { const t = search.toLowerCase(); list = list.filter((e) => e.name.includes(t) || e.nameEn.toLowerCase().includes(t) || e.muscles.some((m) => m.toLowerCase().includes(t)) || e.targets.some((m) => m.toLowerCase().includes(t)) || e.pos.toLowerCase().includes(t) || e.springs.toLowerCase().includes(t) || (CATEGORY_LABELS[e.cat]?.en || "").toLowerCase().includes(t) || (CATEGORY_LABELS[e.cat]?.zh || "").includes(t)); }
+          if (search) { const q = search.toLowerCase(); list = list.filter((e) => e.name.includes(q) || e.nameEn.toLowerCase().includes(q) || e.muscles.some((m) => m.toLowerCase().includes(q)) || e.targets.some((m) => m.toLowerCase().includes(q)) || e.pos.toLowerCase().includes(q) || e.springs.toLowerCase().includes(q) || (CATEGORY_LABELS[e.cat]?.en || "").toLowerCase().includes(q) || (CATEGORY_LABELS[e.cat]?.zh || "").includes(q)); }
           return (
             <div>
               {/* Search bar - puffy */}
@@ -806,7 +897,7 @@ export default function App() {
                 boxShadow: P.shadow, display: "flex", alignItems: "center",
               }}>
                 <span style={{ padding: "0 12px", fontSize: 16, color: P.textFaint }}>○</span>
-                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索动作、肌肉 Search exercises, muscles..." style={{ flex: 1, background: "transparent", border: "none", padding: "12px 0", color: P.text, fontSize: 14, outline: "none" }} />
+                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("搜索动作、肌肉...", "Search exercises, muscles...")} style={{ flex: 1, background: "transparent", border: "none", padding: "12px 0", color: P.text, fontSize: 14, outline: "none" }} />
               </div>
 
               {/* Category pills - scrollable row */}
@@ -817,7 +908,7 @@ export default function App() {
                   color: filterCat === "all" ? "#fff" : P.textMid,
                   boxShadow: filterCat === "all" ? `0 4px 14px rgba(74,63,58,0.2)` : P.shadowSm,
                   backdropFilter: "blur(10px)",
-                }}>全部 All {REFORMER_EXERCISES.length}</button>
+                }}>{t("全部", "All")} {REFORMER_EXERCISES.length}</button>
                 {Object.entries(CATEGORY_LABELS).map(([k, v]) => {
                   const a = filterCat === k;
                   const cc = CC[k] || {};
@@ -828,7 +919,7 @@ export default function App() {
                       color: a ? "#fff" : P.textMid,
                       boxShadow: a ? `0 4px 14px ${cc.glow || P.peachGlow}` : P.shadowSm,
                       backdropFilter: "blur(10px)",
-                    }}>{v.zh} {v.en}</button>
+                    }}>{lang === "en" ? v.en : `${v.zh} ${v.en}`}</button>
                   );
                 })}
               </div>
@@ -848,19 +939,19 @@ export default function App() {
                     }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
                         <div>
-                          <div style={{ fontSize: 16, fontWeight: 600, color: P.text, marginBottom: 2 }}>{ex.name}</div>
-                          <div style={{ fontSize: 11, color: P.textSoft }}>{ex.nameEn}</div>
+                          <div style={{ fontSize: 16, fontWeight: 600, color: P.text, marginBottom: 2 }}>{lang === "en" ? ex.nameEn : ex.name}</div>
+                          {lang === "zh" && <div style={{ fontSize: 11, color: P.textSoft }}>{ex.nameEn}</div>}
                         </div>
-                        {tag(cc.bg, cc.c, `${CATEGORY_LABELS[ex.cat]?.zh} ${CATEGORY_LABELS[ex.cat]?.en}`)}
+                        {tag(cc.bg, cc.c, lang === "en" ? CATEGORY_LABELS[ex.cat]?.en : `${CATEGORY_LABELS[ex.cat]?.zh} ${CATEGORY_LABELS[ex.cat]?.en}`)}
                       </div>
                       {/* Meta pills row */}
                       <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
-                        {[ex.level === 1 ? "L1 Essential" : ex.level === 2 ? "L2 Intermediate" : "L3 Advanced", `${ex.reps} reps`, ex.springs].map((t, i) => (
+                        {[ex.level === 1 ? "L1 Essential" : ex.level === 2 ? "L2 Intermediate" : "L3 Advanced", `${ex.reps} reps`, ex.springs].map((tt, i) => (
                           <span key={i} style={{
                             fontSize: 11, padding: "4px 12px", borderRadius: 100,
                             background: "rgba(0,0,0,0.03)", color: P.textMid,
                             boxShadow: "inset 0 1px 2px rgba(0,0,0,0.04)",
-                          }}>{t}</span>
+                          }}>{tt}</span>
                         ))}
                       </div>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
@@ -868,9 +959,9 @@ export default function App() {
                       </div>
                       <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(0,0,0,0.04)" }}>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 8 }}>
-                          {ex.targets.map((t, i) => tag(P.skySoft, P.sky, t))}
+                          {ex.targets.map((tg, i) => tag(P.skySoft, P.sky, tg))}
                         </div>
-                        <div style={{ fontSize: 11, color: P.textSoft }}>体位 Position: {ex.pos}</div>
+                        <div style={{ fontSize: 11, color: P.textSoft }}>{t("体位", "Position")}: {ex.pos}</div>
                       </div>
                     </div>
                   );
@@ -887,9 +978,8 @@ export default function App() {
             <div>
               {/* Issue Summary */}
               <div style={{ marginBottom: 32 }}>
-                <div style={{ fontFamily: "'Noto Serif SC', serif", fontSize: 26, color: P.text, marginBottom: 2, textAlign: "center" }}>体态分析摘要</div>
-                <div style={{ fontSize: 13, color: P.textSoft, textAlign: "center", marginBottom: 4 }}>Postural Analysis Summary</div>
-                {clientName && <div style={{ fontSize: 13, color: P.textSoft, textAlign: "center", marginBottom: 20 }}>{clientName} 的个性化矫正方案 Personalized Correction Program</div>}
+                <div style={{ fontFamily: lang === "en" ? "'Quicksand'" : "'Noto Serif SC', serif", fontSize: 26, color: P.text, marginBottom: 2, textAlign: "center" }}>{t("体态分析摘要", "Postural Analysis Summary")}</div>
+                {clientName && <div style={{ fontSize: 13, color: P.textSoft, textAlign: "center", marginBottom: 20 }}>{t(`${clientName} 的个性化矫正方案`, `Personalized Correction Program for ${clientName}`)}</div>}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 }}>
                   {program.issueDetails.map((d, i) => {
                     const prioColor = d.priority >= 3 ? P.peach : d.priority >= 2 ? P.terra : P.sage;
@@ -902,18 +992,18 @@ export default function App() {
                       }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                           <span style={{ width: 10, height: 10, borderRadius: 5, background: `linear-gradient(140deg, ${prioColor}, ${prioColor}aa)`, boxShadow: `0 2px 8px ${prioGlow}`, flexShrink: 0 }} />
-                          <span style={{ fontSize: 14, fontWeight: 600, color: P.text }}>{d.issue}{d.sideLabel}</span>
+                          <span style={{ fontSize: 14, fontWeight: 600, color: P.text }}>{lang === "en" ? d.issueEn : d.issue}{d.sideLabel}</span>
                         </div>
-                        <div style={{ fontSize: 11, color: P.textSoft, marginBottom: 8 }}>{d.issueEn}</div>
-                        <div style={{ fontSize: 12, color: P.textMid, lineHeight: 1.6, marginBottom: 12 }}>{d.desc} <span style={{ color: P.textSoft, fontSize: 11 }}>{d.descEn}</span></div>
+                        {lang === "zh" && <div style={{ fontSize: 11, color: P.textSoft, marginBottom: 8 }}>{d.issueEn}</div>}
+                        <div style={{ fontSize: 12, color: P.textMid, lineHeight: 1.6, marginBottom: 12 }}>{lang === "en" ? d.descEn : d.desc} {lang === "zh" && <span style={{ color: P.textSoft, fontSize: 11 }}>{d.descEn}</span>}</div>
                         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                           <div>
-                            {tag(P.terraSoft, P.terra, `↑ 加强 Strengthen`)}
-                            <div style={{ fontSize: 11, color: P.textMid, marginTop: 3, paddingLeft: 4 }}>{d.strengthen} <span style={{ color: P.textSoft, fontSize: 10 }}>{d.strengthenEn}</span></div>
+                            {tag(P.terraSoft, P.terra, t("↑ 加强", "↑ Strengthen"))}
+                            <div style={{ fontSize: 11, color: P.textMid, marginTop: 3, paddingLeft: 4 }}>{lang === "en" ? d.strengthenEn : d.strengthen} {lang === "zh" && <span style={{ color: P.textSoft, fontSize: 10 }}>{d.strengthenEn}</span>}</div>
                           </div>
                           <div>
-                            {tag(P.skySoft, P.sky, `↓ 拉伸 Stretch`)}
-                            <div style={{ fontSize: 11, color: P.textMid, marginTop: 3, paddingLeft: 4 }}>{d.stretch} <span style={{ color: P.textSoft, fontSize: 10 }}>{d.stretchEn}</span></div>
+                            {tag(P.skySoft, P.sky, t("↓ 拉伸", "↓ Stretch"))}
+                            <div style={{ fontSize: 11, color: P.textMid, marginTop: 3, paddingLeft: 4 }}>{lang === "en" ? d.stretchEn : d.stretch} {lang === "zh" && <span style={{ color: P.textSoft, fontSize: 10 }}>{d.stretchEn}</span>}</div>
                           </div>
                         </div>
                       </div>
@@ -930,20 +1020,26 @@ export default function App() {
                 borderRadius: 24, boxShadow: P.shadow,
               }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: P.text }}>
-                  共 {program.totalSessions} 次课程 · {program.totalSessions} Sessions · 45min each
+                  {t(`共 ${program.totalSessions} 次课程 · 每次45分钟`, `${program.totalSessions} Sessions · 45min each`)}
                 </div>
-                <div style={{ fontSize: 11, color: P.textSoft, marginTop: 4 }}>建议每周2–3次 Recommended 2–3× per week</div>
+                <div style={{ fontSize: 11, color: P.textSoft, marginTop: 4 }}>{t("建议每周2–3次", "Recommended 2–3× per week")}</div>
                 <button onClick={() => { setShowEmail(true); setEmailSent(false); setEmailClientName(clientName); }} style={{
                   marginTop: 10, padding: "8px 20px", borderRadius: 100, border: "none", cursor: "pointer",
                   background: `linear-gradient(140deg, ${P.sky}, ${P.lav})`, color: "#fff",
                   fontSize: 12, fontWeight: 500, boxShadow: "0 4px 16px rgba(160,196,216,0.3)",
                   transition: "all 0.3s cubic-bezier(0.16,1,0.3,1)",
-                }}>✉ 发送报告 Email Report</button>
+                }}>{t("✉ 发送报告", "✉ Email Report")}</button>
+                <button onClick={handleDownloadPDF} style={{
+                  marginTop: 6, marginLeft: 8, padding: "8px 20px", borderRadius: 100, border: "none", cursor: "pointer",
+                  background: `linear-gradient(140deg, ${P.peach}, ${P.blush})`, color: "#fff",
+                  fontSize: 12, fontWeight: 500, boxShadow: `0 4px 16px ${P.peachGlow}`,
+                  transition: "all 0.3s cubic-bezier(0.16,1,0.3,1)",
+                }}>{t("⬇ 下载PDF", "⬇ Download PDF")}</button>
                 <div style={{ display: "flex", justifyContent: "center", gap: 16, marginTop: 10 }}>
                   {[
-                    { label: "激活期 Activation", color: P.peach },
-                    { label: "强化期 Strengthening", color: P.sky },
-                    { label: "整合期 Integration", color: P.lav },
+                    { label: t("激活期", "Activation"), color: P.peach },
+                    { label: t("强化期", "Strengthening"), color: P.sky },
+                    { label: t("整合期", "Integration"), color: P.lav },
                   ].map((ph, i) => (
                     <div key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
                       <span style={{ width: 8, height: 8, borderRadius: 4, background: ph.color }} />
@@ -961,10 +1057,10 @@ export default function App() {
                 maxWidth: 500, margin: "0 auto 24px",
               }}>
                 {[
-                  { key: "all", label: "全部 All" },
-                  { key: 0, label: "激活 Activation" },
-                  { key: 1, label: "强化 Strengthen" },
-                  { key: 2, label: "整合 Integration" },
+                  { key: "all", label: t("全部", "All") },
+                  { key: 0, label: t("激活", "Activation") },
+                  { key: 1, label: t("强化", "Strengthen") },
+                  { key: 2, label: t("整合", "Integration") },
                 ].map((f) => (
                   <button key={String(f.key)} onClick={() => { setActiveWeek(f.key); setExpSession(null); }} style={{
                     flex: 1, padding: "10px 0", borderRadius: 100, border: "none", cursor: "pointer",
@@ -1033,12 +1129,12 @@ export default function App() {
                               }}>{eIdx + 1}</span>
                               <div style={{ flex: 1 }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                                  <span style={{ fontSize: 14, fontWeight: 500, color: P.text }}>{ex.name}</span>
-                                  <span style={{ fontSize: 11, color: P.textFaint }}>{ex.nameEn}</span>
+                                  <span style={{ fontSize: 14, fontWeight: 500, color: P.text }}>{lang === "en" ? ex.nameEn : ex.name}</span>
+                                  {lang === "zh" && <span style={{ fontSize: 11, color: P.textFaint }}>{ex.nameEn}</span>}
                                 </div>
                                 {ex.reasons.length > 0 && (
                                   <div style={{ fontSize: 11, color: P.textSoft, marginBottom: 6, lineHeight: 1.5 }}>
-                                    针对 For: {ex.reasons.map(r => r.zh).join(" · ")}
+                                    {t("针对", "For")}: {ex.reasons.map(r => lang === "en" ? r.en : r.zh).join(" · ")}
                                   </div>
                                 )}
                                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
@@ -1049,7 +1145,7 @@ export default function App() {
                               </div>
                               <div style={{ textAlign: "right", flexShrink: 0, paddingTop: 2 }}>
                                 <div style={{ fontSize: 13, fontWeight: 500, color: P.textMid }}>{ex.sets}×{ex.reps}</div>
-                                <div style={{ fontSize: 10, color: P.textFaint }}>{ex.springs} 弹簧 Springs</div>
+                                <div style={{ fontSize: 10, color: P.textFaint }}>{ex.springs} {t("弹簧", "Springs")}</div>
                               </div>
                             </div>
                           );
@@ -1096,23 +1192,23 @@ export default function App() {
                 }}>✉</div>
                 <div style={{ fontSize: 18, fontWeight: 600, color: P.text }}>OiaOia Pilates</div>
                 <div style={{ fontSize: 12, color: P.textSoft, marginTop: 4 }}>
-                  发送体态分析与课程报告
+                  {t("发送体态分析与课程报告", "Send postural analysis & program report")}
                 </div>
                 <div style={{ fontSize: 11, color: P.textFaint }}>
-                  Send postural analysis & program report via email
+                  {t("PDF报告将通过邮件发送", "PDF report will be sent via email")}
                 </div>
               </div>
 
               {/* Client Name */}
               <div style={{ marginBottom: 12 }}>
                 <label style={{ fontSize: 11, color: P.textSoft, display: "block", marginBottom: 6 }}>
-                  客户姓名 Client Name
+                  {t("客户姓名", "Client Name")}
                 </label>
                 <input
                   type="text"
                   value={emailClientName}
                   onChange={(e) => setEmailClientName(e.target.value)}
-                  placeholder="客户姓名 Client Name"
+                  placeholder={t("客户姓名", "Client Name")}
                   style={{
                     width: "100%", padding: "14px 18px", borderRadius: 16, border: "none",
                     background: "rgba(0,0,0,0.03)", fontSize: 14, color: P.text,
@@ -1127,7 +1223,7 @@ export default function App() {
               {/* Recipient */}
               <div style={{ marginBottom: 12 }}>
                 <label style={{ fontSize: 11, color: P.textSoft, display: "block", marginBottom: 6 }}>
-                  收件人 Recipient
+                  {t("收件人", "Recipient")}
                 </label>
                 <input
                   type="email"
@@ -1151,13 +1247,13 @@ export default function App() {
                 padding: "12px 16px", borderRadius: 16, background: "rgba(0,0,0,0.02)",
                 marginBottom: 20,
               }}>
-                <div style={{ fontSize: 11, color: P.textSoft, marginBottom: 6 }}>报告内容 Report Contents:</div>
+                <div style={{ fontSize: 11, color: P.textSoft, marginBottom: 6 }}>{t("报告内容", "Report Contents")}:</div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 11, padding: "4px 10px", borderRadius: 100, background: P.peachSoft, color: P.peach }}>
-                    {program?.issueDetails?.length || 0} 个体态问题 issues
+                    {program?.issueDetails?.length || 0} {t("个体态问题", "issues")}
                   </span>
                   <span style={{ fontSize: 11, padding: "4px 10px", borderRadius: 100, background: P.skySoft, color: P.sky }}>
-                    {program?.totalSessions || 0} 次课程 sessions
+                    {program?.totalSessions || 0} {t("次课程", "sessions")}
                   </span>
                   {(emailClientName || clientName) && (
                     <span style={{ fontSize: 11, padding: "4px 10px", borderRadius: 100, background: P.lavSoft, color: P.lav }}>
@@ -1185,7 +1281,7 @@ export default function App() {
                   opacity: emailSending ? 0.7 : 1,
                 }}
               >
-                {emailSent ? "✓ 已发送 Sent!" : emailSending ? "发送中 Sending..." : "发送 Send Report"}
+                {emailSent ? t("✓ 已发送", "✓ Sent!") : emailSending ? t("发送中...", "Sending...") : t("发送报告", "Send Report")}
               </button>
             </div>
           </div>
