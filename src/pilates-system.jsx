@@ -645,8 +645,8 @@ export default function App() {
       });
 
       if (!resp.ok) {
-        const err = await resp.json();
-        throw new Error(err.error || "Analysis failed");
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.details || err.error || "Server error " + resp.status);
       }
 
       const result = await resp.json();
