@@ -359,9 +359,9 @@ function generateProgram(issues, sideData, level) {
 
   const getPhase = (i, total) => {
     const pct = i / total;
-    if (pct < 0.3) return { phase: "激活期 Activation", phaseIdx: 0, levelCap: Math.max(1, level - 1), catMax: 2, fwMax: 3 };
-    if (pct < 0.7) return { phase: "强化期 Strengthening", phaseIdx: 1, levelCap: level, catMax: 3, fwMax: 3 };
-    return { phase: "整合期 Integration", phaseIdx: 2, levelCap: level + 1, catMax: 3, fwMax: 4 };
+    if (pct < 0.3) return { phase: "激活期", phaseEn: "Activation", phaseIdx: 0, levelCap: Math.max(1, level - 1), catMax: 2, fwMax: 3 };
+    if (pct < 0.7) return { phase: "强化期", phaseEn: "Strengthening", phaseIdx: 1, levelCap: level, catMax: 3, fwMax: 3 };
+    return { phase: "整合期", phaseEn: "Integration", phaseIdx: 2, levelCap: level + 1, catMax: 3, fwMax: 4 };
   };
 
   // Sets by phase × category
@@ -385,8 +385,8 @@ function generateProgram(issues, sideData, level) {
 
   for (let i = 0; i < totalSessions; i++) {
     const focusTemplate = focusPool[i % focusPool.length];
-    const { phase, phaseIdx, levelCap, catMax, fwMax } = getPhase(i, totalSessions);
-    const session = { num: i + 1, phase, phaseIdx, focus: focusTemplate.focus, exercises: [], totalTime: 0 };
+    const { phase, phaseEn, phaseIdx, levelCap, catMax, fwMax } = getPhase(i, totalSessions);
+    const session = { num: i + 1, phase, phaseEn, phaseIdx, focus: focusTemplate.focus, exercises: [], totalTime: 0 };
     let timeLeft = TARGET_TIME;
     const added = new Set();
 
@@ -434,6 +434,30 @@ function generateProgram(issues, sideData, level) {
     }
 
     session.totalTime = TARGET_TIME - timeLeft;
+    // Derive focus label from actual exercises in session
+    const catCount = {};
+    session.exercises.forEach(e => { if (e.cat !== "warmup" && e.cat !== "footwork" && e.cat !== "stretch") catCount[e.cat] = (catCount[e.cat] || 0) + 1; });
+    const topCats = Object.entries(catCount).sort((a,b) => b[1] - a[1]);
+    const focusMap = {
+      abdominal: { zh: "核心", en: "Core" },
+      spinal_art: { zh: "脊柱", en: "Spine" },
+      back_ext: { zh: "背伸展", en: "Back Extension" },
+      arm_work: { zh: "上肢", en: "Upper Body" },
+      hip_work: { zh: "髋部", en: "Hip" },
+      full_body: { zh: "全身整合", en: "Full Body" },
+      side_lying: { zh: "侧链", en: "Lateral Chain" },
+      standing: { zh: "站姿", en: "Standing" },
+    };
+    if (topCats.length >= 2) {
+      session.focus = `${focusMap[topCats[0][0]]?.zh || topCats[0][0]} & ${focusMap[topCats[1][0]]?.zh || topCats[1][0]}`;
+      session.focusEn = `${focusMap[topCats[0][0]]?.en || topCats[0][0]} & ${focusMap[topCats[1][0]]?.en || topCats[1][0]}`;
+    } else if (topCats.length === 1) {
+      session.focus = focusMap[topCats[0][0]]?.zh || topCats[0][0];
+      session.focusEn = focusMap[topCats[0][0]]?.en || topCats[0][0];
+    } else {
+      session.focus = "基础 Fundamentals";
+      session.focusEn = "Fundamentals";
+    }
     sessions.push(session);
   }
 
@@ -511,6 +535,8 @@ export default function App() {
   const [lang, setLang] = useState("zh");
   const t = (zh, en) => lang === "en" ? en : zh;
   const tb = (zh, en) => lang === "en" ? en : `${zh} ${en}`;
+  // Split bilingual strings like "膈肌 Diaphragm" → zh:"膈肌" en:"Diaphragm"
+  const tl = (s) => { if (!s) return s; const m = s.match(/^([\u4e00-\u9fff\u3400-\u4dbf·–]+)\s*(.*)$/); return m ? (lang === "en" ? m[2] : s) : s; };
 
   const toggle = useCallback((id) => setChecks((p) => ({ ...p, [id]: !p[id] })), []);
 
@@ -577,7 +603,7 @@ export default function App() {
       return `<div style="margin-bottom:20px;page-break-inside:avoid">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
           <div style="width:36px;height:36px;border-radius:12px;background:${s.phaseIdx===0?"#E8A090":s.phaseIdx===1?"#A0C4D8":"#B8A8D0"};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px">${s.num}</div>
-          <div><div style="font-weight:600;font-size:14px">${s.focus}</div><div style="font-size:11px;color:#999">${s.phase} · ${s.exercises.length} ${isEN ? "exercises" : "个动作"} · 45min</div></div>
+          <div><div style="font-weight:600;font-size:14px">${isEN ? (s.focusEn || s.focus) : s.focus}</div><div style="font-size:11px;color:#999">${isEN ? (s.phaseEn || s.phase) : s.phase} · ${s.exercises.length} ${isEN ? "exercises" : "个动作"} · 45min</div></div>
         </div>
         <table style="width:100%;border-collapse:collapse">
           <thead><tr style="background:#fafafa">
@@ -955,13 +981,13 @@ export default function App() {
                         ))}
                       </div>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-                        {ex.muscles.map((m, i) => tag(cc.bg, cc.c, m))}
+                        {ex.muscles.map((m, i) => tag(cc.bg, cc.c, tl(m)))}
                       </div>
                       <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(0,0,0,0.04)" }}>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 8 }}>
-                          {ex.targets.map((tg, i) => tag(P.skySoft, P.sky, tg))}
+                          {ex.targets.map((tg, i) => tag(P.skySoft, P.sky, tl(tg)))}
                         </div>
-                        <div style={{ fontSize: 11, color: P.textSoft }}>{t("体位", "Position")}: {ex.pos}</div>
+                        <div style={{ fontSize: 11, color: P.textSoft }}>{t("体位", "Position")}: {tl(ex.pos)}</div>
                       </div>
                     </div>
                   );
@@ -1103,10 +1129,10 @@ export default function App() {
                           fontSize: 16, fontWeight: 700, color: "#fff",
                         }}>{session.num}</div>
                         <div>
-                          <div style={{ fontSize: 15, fontWeight: 600 }}>{session.focus}</div>
+                          <div style={{ fontSize: 15, fontWeight: 600 }}>{lang === "en" ? (session.focusEn || session.focus) : session.focus}</div>
                           <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
-                            <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 100, background: [P.peachSoft, P.skySoft, P.lavSoft][session.phaseIdx], color: [P.peach, P.sky, P.lav][session.phaseIdx], fontWeight: 500 }}>{session.phase}</span>
-                            <span style={{ fontSize: 11, color: P.textFaint }}>{session.exercises.length} exercises · 45min</span>
+                            <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 100, background: [P.peachSoft, P.skySoft, P.lavSoft][session.phaseIdx], color: [P.peach, P.sky, P.lav][session.phaseIdx], fontWeight: 500 }}>{lang === "en" ? session.phaseEn : session.phase}</span>
+                            <span style={{ fontSize: 11, color: P.textFaint }}>{session.exercises.length} {t("个动作", "exercises")} · 45min</span>
                           </div>
                         </div>
                       </div>
@@ -1139,7 +1165,7 @@ export default function App() {
                                 )}
                                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                                   {ex.muscles.slice(0, 4).map((m, i) => (
-                                    <span key={i} style={{ fontSize: 9, padding: "3px 10px", borderRadius: 100, background: cc.bg || "rgba(0,0,0,0.03)", color: cc.c || P.textSoft }}>{m}</span>
+                                    <span key={i} style={{ fontSize: 9, padding: "3px 10px", borderRadius: 100, background: cc.bg || "rgba(0,0,0,0.03)", color: cc.c || P.textSoft }}>{tl(m)}</span>
                                   ))}
                                 </div>
                               </div>
