@@ -567,11 +567,111 @@ export default function App() {
   const [emailClientName, setEmailClientName] = useState("");
   const [emailSending, setEmailSending] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
+  const [photos, setPhotos] = useState({ front: null, left: null, right: null, back: null });
+  const [photoPreviews, setPhotoPreviews] = useState({ front: null, left: null, right: null, back: null });
+  const [analyzing, setAnalyzing] = useState(false);
+  const [aiSummary, setAiSummary] = useState("");
+  const [previewPhoto, setPreviewPhoto] = useState(null);
+  const [pasteTarget, setPasteTarget] = useState(null);
   const [lang, setLang] = useState("zh");
   const t = (zh, en) => lang === "en" ? en : zh;
   const tb = (zh, en) => lang === "en" ? en : `${zh} ${en}`;
   // Split bilingual strings like "膈肌 Diaphragm" → zh:"膈肌" en:"Diaphragm"
   const tl = (s) => { if (!s) return s; const m = s.match(/^([\u4e00-\u9fff\u3400-\u4dbf·–]+)\s*(.*)$/); return m ? (lang === "en" ? m[2] : s) : s; };
+
+
+  // ═══ PHOTO UPLOAD & AI ANALYSIS ═══
+  const handlePhotoUpload = useCallback((type, file) => {
+    if (!file) return;
+    // Compress image before storing
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const MAX = 1024;
+        let w = img.width, h = img.height;
+        if (w > MAX || h > MAX) {
+          if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+          else { w = Math.round(w * MAX / h); h = MAX; }
+        }
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, w, h);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
+        const base64 = dataUrl.split(",")[1];
+        setPhotos(p => ({ ...p, [type]: { data: base64, mediaType: "image/jpeg" } }));
+        setPhotoPreviews(p => ({ ...p, [type]: dataUrl }));
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
+
+  // Handle paste from clipboard — paste into focused slot or first empty
+  const handlePaste = useCallback((e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith("image/")) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        // Paste into focused slot, or first empty slot
+        const slotOrder = ["front", "left", "right", "back"];
+        const target = pasteTarget || slotOrder.find(s => !photos[s]) || "front";
+        handlePhotoUpload(target, file);
+        setPasteTarget(null);
+        break;
+      }
+    }
+  }, [photos, handlePhotoUpload, pasteTarget]);
+
+  const photoCount = useMemo(() => Object.values(photos).filter(Boolean).length, [photos]);
+
+  const handleAnalyze = useCallback(async () => {
+    if (photoCount === 0) return;
+    setAnalyzing(true);
+    setAiSummary("");
+    try {
+      const images = Object.entries(photos)
+        .filter(([, v]) => v)
+        .map(([type, v]) => ({ type, data: v.data, mediaType: v.mediaType }));
+
+      const resp = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ images }),
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.error || "Analysis failed");
+      }
+
+      const result = await resp.json();
+
+      // Auto-check findings
+      if (result.findings) {
+        const newChecks = { ...checks };
+        const newSides = { ...sides };
+        result.findings.forEach(f => {
+          newChecks[f.id] = true;
+          if (f.sides && f.sides.length) {
+            f.sides.forEach(s => { newSides[`${f.id}_${s}`] = true; });
+          }
+        });
+        setChecks(newChecks);
+        setSides(newSides);
+      }
+
+      if (result.summary) setAiSummary(result.summary);
+    } catch (err) {
+      alert(t("AI分析失败: " + err.message, "AI analysis failed: " + err.message));
+    } finally {
+      setAnalyzing(false);
+    }
+  }, [photos, photoCount, checks, sides, t]);
 
   const toggle = useCallback((id) => setChecks((p) => ({ ...p, [id]: !p[id] })), []);
 
@@ -797,6 +897,120 @@ export default function App() {
         {/* ═══ STEP 1 ═══ */}
         {step === 1 && (
           <div>
+
+            {/* ═══ AI Photo Analysis ═══ */}
+            <div style={{
+                background: P.card, backdropFilter: "blur(20px)",
+                borderRadius: 28, padding: 24, marginBottom: 28,
+                boxShadow: P.shadow,
+              }}>
+              <div style={{ textAlign: "center", marginBottom: 16 }}>
+                <div style={{ fontSize: 16, fontWeight: 600, color: P.text }}>{t("AI 体态分析", "AI Posture Analysis")}</div>
+                <div style={{ fontSize: 12, color: P.textSoft, marginTop: 4 }}>{t("上传照片，AI 自动识别体态问题", "Upload photos for automatic posture detection")}</div>
+                <div style={{ fontSize: 11, color: P.textFaint, marginTop: 4 }}>{t("支持点击上传、拖拽、或 Ctrl+V 粘贴图片", "Click to upload, drag & drop, or Ctrl+V to paste")}</div>
+              </div>
+
+              {/* 4 photo slots */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
+                {[
+                  { key: "front", zh: "正面", en: "Front" },
+                  { key: "left", zh: "左侧面", en: "Left Side" },
+                  { key: "right", zh: "右侧面", en: "Right Side" },
+                  { key: "back", zh: "背面", en: "Back" },
+                ].map(slot => (
+                  <div key={slot.key}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f && f.type.startsWith("image/")) handlePhotoUpload(slot.key, f); }}
+                    onFocus={() => setPasteTarget(slot.key)}
+                    onPaste={handlePaste}
+                    tabIndex={0}
+                    style={{
+                    display: "flex", flexDirection: "column", alignItems: "center",
+                    borderRadius: 20, overflow: "hidden",
+                    background: photoPreviews[slot.key] ? "transparent" : pasteTarget === slot.key ? "rgba(232,160,144,0.06)" : "rgba(0,0,0,0.03)",
+                    border: photoPreviews[slot.key] ? `2px solid ${P.peach}` : pasteTarget === slot.key ? `2px dashed ${P.peach}` : "2px dashed rgba(0,0,0,0.1)",
+                    aspectRatio: "3/4", justifyContent: "center",
+                    transition: "all 0.3s",
+                    position: "relative", outline: "none", cursor: "pointer",
+                  }}>
+                    {photoPreviews[slot.key] ? (
+                      <>
+                        <img src={photoPreviews[slot.key]} alt={slot.en}
+                          onClick={() => setPreviewPhoto({ src: photoPreviews[slot.key], label: t(slot.zh, slot.en) })}
+                          style={{ width: "100%", height: "100%", objectFit: "cover", position: "absolute", top: 0, left: 0, cursor: "zoom-in" }}
+                        />
+                        <div style={{
+                          position: "absolute", bottom: 0, left: 0, right: 0,
+                          background: "linear-gradient(transparent, rgba(0,0,0,0.5))",
+                          padding: "16px 8px 6px", textAlign: "center",
+                          display: "flex", justifyContent: "center", gap: 8, alignItems: "center",
+                        }}>
+                          <span style={{ fontSize: 11, color: "#fff", fontWeight: 500 }}>{t(slot.zh, slot.en)}</span>
+                        </div>
+                        {/* Delete button */}
+                        <button onClick={(e) => { e.stopPropagation(); setPhotos(p => ({...p, [slot.key]: null})); setPhotoPreviews(p => ({...p, [slot.key]: null})); }}
+                          style={{
+                            position: "absolute", top: 6, right: 6, width: 22, height: 22,
+                            borderRadius: 11, border: "none", background: "rgba(0,0,0,0.4)",
+                            color: "#fff", fontSize: 12, cursor: "pointer",
+                            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2,
+                          }}>×</button>
+                        {/* Re-upload button */}
+                        <label style={{
+                            position: "absolute", top: 6, left: 6, width: 22, height: 22,
+                            borderRadius: 11, border: "none", background: "rgba(0,0,0,0.4)",
+                            color: "#fff", fontSize: 11, cursor: "pointer",
+                            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2,
+                          }}>↻<input type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => handlePhotoUpload(slot.key, e.target.files[0])} /></label>
+                      </>
+                    ) : (
+                      <label style={{ display: "flex", flexDirection: "column", alignItems: "center", cursor: "pointer", width: "100%", height: "100%", justifyContent: "center" }}>
+                        <input type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => handlePhotoUpload(slot.key, e.target.files[0])} />
+                        <div style={{ fontSize: 24, color: P.textFaint, marginBottom: 4 }}>📷</div>
+                        <div style={{ fontSize: 11, color: P.textFaint, fontWeight: 500 }}>{t(slot.zh, slot.en)}</div>
+                        <div style={{ fontSize: 9, color: P.textFaint, marginTop: 2 }}>{t("点击或粘贴", "Click or paste")}</div>
+                      </label>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Analyze button */}
+              <div style={{ textAlign: "center" }}>
+                <button onClick={handleAnalyze} disabled={photoCount === 0 || analyzing}
+                  style={{
+                    padding: "12px 36px", borderRadius: 100, border: "none", cursor: photoCount > 0 ? "pointer" : "default",
+                    fontSize: 14, fontWeight: 600,
+                    background: photoCount > 0
+                      ? analyzing ? P.textFaint : `linear-gradient(140deg, ${P.peach}, ${P.blush}, ${P.lav})`
+                      : "rgba(0,0,0,0.06)",
+                    color: photoCount > 0 ? "#fff" : P.textFaint,
+                    boxShadow: photoCount > 0 && !analyzing ? `0 6px 24px ${P.peachGlow}` : "none",
+                    transition: "all 0.4s cubic-bezier(0.16,1,0.3,1)",
+                  }}>
+                  {analyzing
+                    ? t("🔍 AI 分析中...", "🔍 Analyzing...")
+                    : t(`🤖 AI 分析体态 (${photoCount}/4)`, `🤖 Analyze Posture (${photoCount}/4)`)}
+                </button>
+                {photoCount > 0 && photoCount < 4 && !analyzing && (
+                  <div style={{ fontSize: 11, color: P.textSoft, marginTop: 8 }}>
+                    {t("可以只上传部分照片，AI 将分析已上传的视角", "You can upload partial photos — AI will analyze available views")}
+                  </div>
+                )}
+              </div>
+
+              {/* AI Summary */}
+              {aiSummary && (
+                <div style={{
+                  marginTop: 16, padding: "14px 18px", borderRadius: 16,
+                  background: `linear-gradient(140deg, ${P.peachSoft}, ${P.lavSoft})`,
+                  fontSize: 13, color: P.textMid, lineHeight: 1.6,
+                }}>
+                  <span style={{ fontWeight: 600, color: P.peach }}>AI: </span>{aiSummary}
+                </div>
+              )}
+            </div>
+
             {/* View toggle - soft 3D pills */}
             <div style={{ display: "flex", gap: 10, marginBottom: 28, justifyContent: "center" }}>
               {Object.entries(POSTURAL_CHECKLIST).map(([key, d]) => {
@@ -1220,7 +1434,24 @@ export default function App() {
           );
         })()}
 
-        {/* ═══ EMAIL MODAL ═══ */}
+  
+        {/* ═══ PHOTO PREVIEW MODAL ═══ */}
+        {previewPhoto && (
+          <div onClick={() => setPreviewPhoto(null)} style={{
+            position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 2000,
+            background: "rgba(0,0,0,0.85)", backdropFilter: "blur(12px)",
+            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+            cursor: "zoom-out",
+          }}>
+            <div style={{ fontSize: 14, color: "#fff", fontWeight: 500, marginBottom: 12 }}>{previewPhoto.label}</div>
+            <img src={previewPhoto.src} alt="" style={{
+              maxWidth: "90vw", maxHeight: "80vh", objectFit: "contain",
+              borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
+            }} />
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", marginTop: 12 }}>{t("点击关闭", "Click to close")}</div>
+          </div>
+        )}
+      {/* ═══ EMAIL MODAL ═══ */}
         {showEmail && (
           <div style={{
             position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000,
