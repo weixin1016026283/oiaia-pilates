@@ -379,19 +379,39 @@ function generateProgram(issues, sideData, level) {
     return a;
   };
 
+  // Full exercise pool (all exercises at appropriate level) for filling sessions
+  const allPool = REFORMER_EXERCISES.filter(e => e.level <= level);
+
   const sessions = [];
   const recentlyUsed = {};
   const TARGET_TIME = 45;
+  const MIN_TIME = 15;
+
+  const focusMap = {
+    warmup: { zh: "热身", en: "Warm-up" },
+    footwork: { zh: "脚踏", en: "Footwork" },
+    abdominal: { zh: "核心", en: "Core" },
+    spinal_art: { zh: "脊柱", en: "Spine" },
+    back_ext: { zh: "背伸展", en: "Back Extension" },
+    arm_work: { zh: "上肢", en: "Upper Body" },
+    hip_work: { zh: "髋部", en: "Hip" },
+    full_body: { zh: "全身整合", en: "Full Body" },
+    side_lying: { zh: "侧链", en: "Lateral Chain" },
+    standing: { zh: "站姿", en: "Standing" },
+    stretch: { zh: "拉伸", en: "Stretch" },
+  };
 
   for (let i = 0; i < totalSessions; i++) {
     const focusTemplate = focusPool[i % focusPool.length];
     const { phase, phaseEn, phaseIdx, levelCap, catMax, fwMax } = getPhase(i, totalSessions);
-    const session = { num: i + 1, phase, phaseEn, phaseIdx, focus: focusTemplate.focus, exercises: [], totalTime: 0 };
+    const session = { num: i + 1, phase, phaseEn, phaseIdx, focus: "", focusEn: "", exercises: [], totalTime: 0 };
     let timeLeft = TARGET_TIME;
     const added = new Set();
 
-    const addFromCat = (cat, max) => {
-      let catExs = available.filter((e) => e.cat === cat && !added.has(e.id) && e.level <= levelCap);
+    // Add exercises from a category, preferring priority exercises then falling back to all
+    const addFromCat = (cat, max, priorityOnly) => {
+      const pool = priorityOnly ? available : allPool;
+      let catExs = pool.filter((e) => e.cat === cat && !added.has(e.id) && e.level <= levelCap);
       catExs = seededShuffle(catExs, i * 137 + cat.charCodeAt(0) * 31);
       catExs.sort((a, b) => {
         const pA = exercisePriority[a.id] || 0, pB = exercisePriority[b.id] || 0;
@@ -411,51 +431,66 @@ function generateProgram(issues, sideData, level) {
       });
     };
 
-    addFromCat("warmup", 2);
-    addFromCat("footwork", fwMax);
+    // Phase 1: Add priority exercises from template categories
+    addFromCat("warmup", 2, true);
+    addFromCat("footwork", fwMax, true);
     focusTemplate.cats.forEach((cat) => {
       if (cat === "warmup" || cat === "footwork") return;
-      addFromCat(cat, cat === "stretch" ? 3 : catMax);
+      addFromCat(cat, cat === "stretch" ? 3 : catMax, true);
     });
 
-    // Fill remaining time to reach 45 min — add more from any available category
+    // Phase 2: Fill remaining time from ALL exercises (not just priority)
     if (timeLeft > 2) {
-      const fillCats = focusTemplate.cats.filter(c => c !== "warmup");
-      for (const cat of fillCats) {
+      // First try template categories with full pool
+      focusTemplate.cats.forEach((cat) => {
+        if (timeLeft <= 2) return;
+        addFromCat(cat, 2, false);
+      });
+    }
+
+    // Phase 3: If still under target, try any category from full pool
+    if (timeLeft > 2) {
+      const allCats = ["footwork", "abdominal", "hip_work", "spinal_art", "arm_work", "full_body", "back_ext", "side_lying", "standing", "stretch"];
+      for (const cat of allCats) {
         if (timeLeft <= 2) break;
-        const catExs = available.filter(e => e.cat === cat && !added.has(e.id) && e.level <= levelCap && e.dur <= timeLeft);
-        if (catExs.length) {
-          const e = catExs[0];
-          session.exercises.push({ ...e, sets: getSets(cat, phaseIdx), reasons: exerciseReasons[e.id] || [] });
-          timeLeft -= e.dur;
-          added.add(e.id);
-        }
+        addFromCat(cat, 2, false);
       }
     }
 
-    session.totalTime = TARGET_TIME - timeLeft;
-    // Derive focus label from actual exercises in session
+    // Phase 4: If STILL under minimum time, boost sets on existing exercises
+    let actualTime = TARGET_TIME - timeLeft;
+    if (actualTime < MIN_TIME) {
+      session.exercises.forEach(e => {
+        if (e.cat !== "warmup" && e.cat !== "stretch") {
+          e.sets = Math.min(e.sets + 1, 4);
+        }
+      });
+    }
+
+    // Calculate real session time: sum of (dur * sets) or just use exercise count heuristic
+    // Each exercise ~3-5 min base, sets multiply effective time
+    const realTime = session.exercises.reduce((sum, e) => sum + e.dur * Math.max(1, e.sets * 0.7), 0);
+    session.totalTime = Math.round(Math.max(realTime, actualTime));
+
+    // Derive focus label from actual exercises in session (include footwork)
     const catCount = {};
-    session.exercises.forEach(e => { if (e.cat !== "warmup" && e.cat !== "footwork" && e.cat !== "stretch") catCount[e.cat] = (catCount[e.cat] || 0) + 1; });
+    session.exercises.forEach(e => {
+      if (e.cat !== "warmup" && e.cat !== "stretch") {
+        catCount[e.cat] = (catCount[e.cat] || 0) + 1;
+      }
+    });
     const topCats = Object.entries(catCount).sort((a,b) => b[1] - a[1]);
-    const focusMap = {
-      abdominal: { zh: "核心", en: "Core" },
-      spinal_art: { zh: "脊柱", en: "Spine" },
-      back_ext: { zh: "背伸展", en: "Back Extension" },
-      arm_work: { zh: "上肢", en: "Upper Body" },
-      hip_work: { zh: "髋部", en: "Hip" },
-      full_body: { zh: "全身整合", en: "Full Body" },
-      side_lying: { zh: "侧链", en: "Lateral Chain" },
-      standing: { zh: "站姿", en: "Standing" },
-    };
     if (topCats.length >= 2) {
-      session.focus = `${focusMap[topCats[0][0]]?.zh || topCats[0][0]} & ${focusMap[topCats[1][0]]?.zh || topCats[1][0]}`;
-      session.focusEn = `${focusMap[topCats[0][0]]?.en || topCats[0][0]} & ${focusMap[topCats[1][0]]?.en || topCats[1][0]}`;
+      const c1 = focusMap[topCats[0][0]] || { zh: topCats[0][0], en: topCats[0][0] };
+      const c2 = focusMap[topCats[1][0]] || { zh: topCats[1][0], en: topCats[1][0] };
+      session.focus = `${c1.zh} & ${c2.zh}`;
+      session.focusEn = `${c1.en} & ${c2.en}`;
     } else if (topCats.length === 1) {
-      session.focus = focusMap[topCats[0][0]]?.zh || topCats[0][0];
-      session.focusEn = focusMap[topCats[0][0]]?.en || topCats[0][0];
+      const c1 = focusMap[topCats[0][0]] || { zh: topCats[0][0], en: topCats[0][0] };
+      session.focus = c1.zh;
+      session.focusEn = c1.en;
     } else {
-      session.focus = "基础 Fundamentals";
+      session.focus = "基础";
       session.focusEn = "Fundamentals";
     }
     sessions.push(session);
@@ -549,7 +584,7 @@ export default function App() {
     lines.push(`体态分析与课程设计报告`);
     lines.push(`Based on contemporary Reformer methodology and principles`);
     if (name) lines.push(`\nClient 客户: ${name}`);
-    lines.push(`Total Sessions 总课程数: ${program.totalSessions} (45 min each)`);
+    lines.push(`Total Sessions 总课程数: ${program.totalSessions} (~45 min each)`);
     lines.push(`\n${"═".repeat(40)}`);
     lines.push(`POSTURAL ANALYSIS SUMMARY 体态分析摘要`);
     lines.push(`${"═".repeat(40)}\n`);
@@ -566,7 +601,7 @@ export default function App() {
     lines.push(`PROGRAM DESIGN 课程设计`);
     lines.push(`${"═".repeat(40)}\n`);
     program.sessions.forEach((s) => {
-      lines.push(`Session ${s.num} · ${s.phase} · ${s.focus} · 45min`);
+      lines.push(`Session ${s.num} · ${s.phase} · ${s.focus} · ${s.totalTime}min`);
       s.exercises.forEach((ex, j) => {
         lines.push(`  ${j + 1}. ${ex.name} ${ex.nameEn} | ${ex.sets}×${ex.reps} | ${ex.springs} 弹簧 Springs`);
         if (ex.reasons.length) lines.push(`     → ${ex.reasons.map(r => r.zh).join(", ")}`);
@@ -603,7 +638,7 @@ export default function App() {
       return `<div style="margin-bottom:20px;page-break-inside:avoid">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
           <div style="width:36px;height:36px;border-radius:12px;background:${s.phaseIdx===0?"#E8A090":s.phaseIdx===1?"#A0C4D8":"#B8A8D0"};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px">${s.num}</div>
-          <div><div style="font-weight:600;font-size:14px">${isEN ? (s.focusEn || s.focus) : s.focus}</div><div style="font-size:11px;color:#999">${isEN ? (s.phaseEn || s.phase) : s.phase} · ${s.exercises.length} ${isEN ? "exercises" : "个动作"} · 45min</div></div>
+          <div><div style="font-weight:600;font-size:14px">${isEN ? (s.focusEn || s.focus) : s.focus}</div><div style="font-size:11px;color:#999">${isEN ? (s.phaseEn || s.phase) : s.phase} · ${s.exercises.length} ${isEN ? "exercises" : "个动作"} · ${s.totalTime}min</div></div>
         </div>
         <table style="width:100%;border-collapse:collapse">
           <thead><tr style="background:#fafafa">
@@ -625,7 +660,7 @@ export default function App() {
         <div style="font-size:18px;font-weight:600;margin-bottom:4px">${isEN ? "Postural Analysis & Program Report" : "体态分析与课程设计报告"}</div>
         <div style="font-size:12px;color:#999">Based on contemporary Reformer methodology and principles</div>
         ${name ? `<div style="font-size:14px;margin-top:10px;color:#666">${isEN ? "Client" : "客户"}: <b>${name}</b></div>` : ""}
-        <div style="font-size:13px;color:#666;margin-top:4px">${isEN ? `${program.totalSessions} Sessions · 45min each` : `共 ${program.totalSessions} 次课程 · 每次45分钟`}</div>
+        <div style="font-size:13px;color:#666;margin-top:4px">${isEN ? `${program.totalSessions} Sessions · ~45min each` : `共 ${program.totalSessions} 次课程 · 每次约45分钟`}</div>
       </div>
       <div style="margin-bottom:30px">
         <h2 style="font-size:18px;color:#333;border-bottom:1px solid #ddd;padding-bottom:8px">${isEN ? "Postural Analysis Summary" : "体态分析摘要"}</h2>
@@ -1046,7 +1081,7 @@ export default function App() {
                 borderRadius: 24, boxShadow: P.shadow,
               }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: P.text }}>
-                  {t(`共 ${program.totalSessions} 次课程 · 每次45分钟`, `${program.totalSessions} Sessions · 45min each`)}
+                  {t(`共 ${program.totalSessions} 次课程 · 每次约45分钟`, `${program.totalSessions} Sessions · ~45min each`)}
                 </div>
                 <div style={{ fontSize: 11, color: P.textSoft, marginTop: 4 }}>{t("建议每周2–3次", "Recommended 2–3× per week")}</div>
                 <button onClick={() => { setShowEmail(true); setEmailSent(false); setEmailClientName(clientName); }} style={{
@@ -1132,7 +1167,7 @@ export default function App() {
                           <div style={{ fontSize: 15, fontWeight: 600 }}>{lang === "en" ? (session.focusEn || session.focus) : session.focus}</div>
                           <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
                             <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 100, background: [P.peachSoft, P.skySoft, P.lavSoft][session.phaseIdx], color: [P.peach, P.sky, P.lav][session.phaseIdx], fontWeight: 500 }}>{lang === "en" ? session.phaseEn : session.phase}</span>
-                            <span style={{ fontSize: 11, color: P.textFaint }}>{session.exercises.length} {t("个动作", "exercises")} · 45min</span>
+                            <span style={{ fontSize: 11, color: P.textFaint }}>{session.exercises.length} {t("个动作", "exercises")} · {session.totalTime}min</span>
                           </div>
                         </div>
                       </div>
