@@ -898,8 +898,8 @@ export default function App() {
         {step === 1 && (
           <div>
 
-            {/* ═══ AI Photo Analysis ═══ */}
-            <div style={{
+            {/* ═══ AI Photo Analysis (hidden until API ready) ═══ */}
+            {false && <div style={{
                 background: P.card, backdropFilter: "blur(20px)",
                 borderRadius: 28, padding: 24, marginBottom: 28,
                 boxShadow: P.shadow,
@@ -1009,7 +1009,7 @@ export default function App() {
                   <span style={{ fontWeight: 600, color: P.peach }}>AI: </span>{aiSummary}
                 </div>
               )}
-            </div>
+            </div>}
 
             {/* View toggle - soft 3D pills */}
             <div style={{ display: "flex", gap: 10, marginBottom: 28, justifyContent: "center" }}>
